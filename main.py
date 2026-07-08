@@ -17,6 +17,7 @@ from src.parser import split_markdown
 from src.metadata import extract_metadata
 from src.linker import cross_link_concepts
 from src.indexer import write_okf_bundle
+from src.manifest import calculate_file_hash, load_manifest, save_manifest
 
 # Styling Constants
 C_BANNER = Fore.CYAN + Style.BRIGHT
@@ -54,133 +55,186 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
     """
     Core compilation pipeline that reads, parses, splits, metadata-extracts,
     cross-links, and indexes documents with clean, human-readable styled outputs.
+    Supports incremental compilation (caching) via manifest hashes.
     """
-    print("\n" + C_BANNER + "┌" + "─" * 58 + "┐")
-    print(C_BANNER + "│  " + Style.BRIGHT + "OmniOKF Compilation Process" + " " * 29 + C_BANNER + "│")
-    print(C_BANNER + "└" + "─" * 58 + "┘")
+    print("\n" + C_BANNER + "+" + "-" * 58 + "+")
+    print(C_BANNER + "|  " + Style.BRIGHT + "OmniOKF Compilation Process" + " " * 29 + C_BANNER + "|")
+    print(C_BANNER + "+" + "-" * 58 + "+")
 
     if not os.path.exists(input_path):
         print(C_ERROR + f"[-] Error: Input path '{input_path}' does not exist.")
+        print(C_INFO + "    Suggestion: Check that you entered the path correctly.")
         return False
         
-    chunks = []
     supported_extensions = (".md", ".markdown", ".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm")
+    input_files = []
     
+    # 1. Gather all files
     if os.path.isdir(input_path):
         print(C_INFO + f"[Folder] " + C_CHUNK + f"Scanning directory: {input_path}")
-        input_files = []
         for root, dirs, files in os.walk(input_path):
             for file in files:
                 if file.lower().endswith(supported_extensions):
-                    input_files.append(os.path.join(root, file))
+                    input_files.append(os.path.abspath(os.path.join(root, file)))
         
         if not input_files:
             print(C_ERROR + f"[-] Error: No supported files {supported_extensions} found in '{input_path}'.")
+            print(C_INFO + "    Suggestion: Ensure you placed documents in the directory, or verify folder permissions.")
             return False
-            
-        print(C_INFO + f"[Info] " + C_CHUNK + f"Found {len(input_files)} document files. Compiling...")
-        for filepath in input_files:
-            filename = os.path.basename(filepath)
-            print(C_STEP + f"  [Parse] " + C_FILE + f"Reading & converting: {filename}")
-            try:
-                content = read_input_file(filepath)
-                file_chunks = split_markdown(content, split_level)
-                print(C_SUCCESS + f"    [Split] " + C_CHUNK + f"Segmented into {len(file_chunks)} logical sections.")
-                chunks.extend(file_chunks)
-            except Exception as e:
-                print(C_ERROR + f"    [-] Error reading file: {e}")
     else:
-        filename = os.path.basename(input_path)
-        print(C_STEP + f"[Parse] " + C_FILE + f"Reading & converting file: {filename}")
-        try:
-            content = read_input_file(input_path)
-            file_chunks = split_markdown(content, split_level)
-            print(C_SUCCESS + f"  [Split] " + C_CHUNK + f"Segmented into {len(file_chunks)} sections.")
-            chunks.extend(file_chunks)
-        except Exception as e:
-            print(C_ERROR + f"[-] Error reading file: {e}")
-            return False
+        input_files.append(os.path.abspath(input_path))
         
-    total_chunks = len(chunks)
-    if total_chunks == 0:
-        print(C_ERROR + "[-] Error: No content sections found to process.")
-        return False
-        
-    print(C_INFO + f"\n[Info] " + C_CHUNK + f"Total sections to process: {total_chunks}")
+    print(C_INFO + f"[Info] " + C_CHUNK + f"Found {len(input_files)} document file(s) to process.")
     if not api_key:
         print(C_WARNING + "[!] Running in Heuristic Fallback mode (no Gemini API key provided).")
-        print(C_WARNING + "    Standard default metadata will be generated for your concepts.")
     else:
         print(C_SUCCESS + "[LLM] API Key loaded. Generating custom metadata via Gemini...")
 
+    # Load cache manifest
+    manifest = load_manifest(output_dir)
+    new_manifest = {}
     concepts = {}
+    concept_idx = 1
     
-    for idx, chunk in enumerate(chunks, 1):
-        header = chunk["header"]
-        content = chunk["content"]
+    # Process files
+    for filepath in input_files:
+        filename = os.path.basename(filepath)
+        print(C_STEP + f"\n  [File] " + C_FILE + f"Processing: {filename}")
         
-        # Display progress line with clean carriage return
-        sys.stdout.write(
-            "\r" + C_STEP + f"[LLM] " + C_CHUNK + f"Structuring section {idx}/{total_chunks}: " + C_FILE + f"\"{header[:30]}...\""
-        )
-        sys.stdout.flush()
-        
-        meta = None
-        cleaned_content = content
-        
-        if api_key:
-            try:
-                os.environ["GEMINI_API_KEY"] = api_key
-                meta, cleaned_content = extract_metadata(content)
-            except Exception:
-                pass
-                
-        # Heuristic Fallback
-        if not meta:
-            slug = re.sub(r'[^a-z0-9\-]', '', header.lower().replace(' ', '-').replace('_', '-'))
-            slug = slug.strip('-')
-            if not slug:
-                slug = f"concept-{idx}"
-                
-            meta = {
-                "type": "concept",
-                "title": header,
-                "description": f"Section covering: {header}.",
-                "tags": ["uncategorized"],
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "filename": slug
-            }
-            cleaned_content = content
+        try:
+            file_hash = calculate_file_hash(filepath)
+        except Exception as e:
+            print(C_ERROR + f"    [-] Error calculating hash for '{filename}': {e}")
+            continue
             
-        # Ensure filename uniqueness across all loaded files/chunks
-        base_filename = meta["filename"]
-        unique_filename = base_filename
-        counter = 2
-        existing_filenames = {c["metadata"]["filename"] for c in concepts.values()}
-        while unique_filename in existing_filenames:
-            unique_filename = f"{base_filename}-{counter}"
-            counter += 1
-        meta["filename"] = unique_filename
-        
-        concepts[f"chunk_{idx}"] = {
-            "metadata": meta,
-            "content": cleaned_content
+        # Check cache
+        cached_entry = manifest.get(filepath)
+        if cached_entry and cached_entry.get("hash") == file_hash:
+            print(C_SUCCESS + f"    [Cache] Content matches cache. Loading concepts instantly...")
+            cached_concepts = cached_entry.get("concepts", [])
+            for concept_data in cached_concepts:
+                meta = concept_data["metadata"]
+                
+                # Check uniqueness of filename dynamically
+                base_filename = meta["filename"]
+                unique_filename = base_filename
+                counter = 2
+                existing_filenames = {c["metadata"]["filename"] for c in concepts.values()}
+                while unique_filename in existing_filenames:
+                    unique_filename = f"{base_filename}-{counter}"
+                    counter += 1
+                meta["filename"] = unique_filename
+                
+                concepts[f"chunk_{concept_idx}"] = {
+                    "metadata": meta,
+                    "content": concept_data["content"]
+                }
+                concept_idx += 1
+            new_manifest[filepath] = cached_entry
+            continue
+            
+        # Parse document
+        print(C_INFO + f"    [Convert] Converting document structure to Markdown...")
+        try:
+            content = read_input_file(filepath)
+            file_chunks = split_markdown(content, split_level)
+            print(C_SUCCESS + f"    [Split] Segmented into {len(file_chunks)} logical sections.")
+        except Exception as e:
+            print(C_ERROR + f"    [-] Error converting document '{filename}': {e}")
+            print(C_INFO + "        Suggestion: Check if the file is locked, corrupted, or password-protected.")
+            continue
+            
+        file_concepts = []
+        for idx, chunk in enumerate(file_chunks, 1):
+            header = chunk["header"]
+            body = chunk["content"]
+            
+            # Display inline progress
+            sys.stdout.write(
+                "\r" + C_STEP + f"    [LLM] " + C_CHUNK + f"Structuring section {idx}/{len(file_chunks)}: " + C_FILE + f"\"{header[:25]}...\""
+            )
+            sys.stdout.flush()
+            
+            meta = None
+            cleaned_content = body
+            
+            if api_key:
+                try:
+                    os.environ["GEMINI_API_KEY"] = api_key
+                    meta, cleaned_content = extract_metadata(body)
+                except Exception as e:
+                    # Fallback silently on LLM errors to keep output clean, but note details
+                    pass
+                    
+            # Fallback metadata
+            if not meta:
+                slug = re.sub(r'[^a-z0-9\-]', '', header.lower().replace(' ', '-').replace('_', '-'))
+                slug = slug.strip('-')
+                if not slug:
+                    slug = f"concept-{concept_idx}"
+                    
+                meta = {
+                    "type": "concept",
+                    "title": header,
+                    "description": f"Section covering: {header}.",
+                    "tags": ["uncategorized"],
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "filename": slug
+                }
+                cleaned_content = body
+                
+            # Uniqueness check
+            base_filename = meta["filename"]
+            unique_filename = base_filename
+            counter = 2
+            existing_filenames = {c["metadata"]["filename"] for c in concepts.values()}
+            while unique_filename in existing_filenames:
+                unique_filename = f"{base_filename}-{counter}"
+                counter += 1
+            meta["filename"] = unique_filename
+            
+            concept_entry = {
+                "metadata": meta,
+                "content": cleaned_content
+            }
+            
+            file_concepts.append(concept_entry)
+            concepts[f"chunk_{concept_idx}"] = concept_entry
+            concept_idx += 1
+            
+        # Clean progress line
+        if file_chunks:
+            sys.stdout.write("\r" + " " * 75 + "\r")
+            sys.stdout.flush()
+            print(C_SUCCESS + f"    [+] Processed {len(file_chunks)} sections successfully.")
+            
+        # Store in manifest
+        new_manifest[filepath] = {
+            "hash": file_hash,
+            "concepts": file_concepts
         }
         
-    print(C_SUCCESS + "\n  [+] Concept structuring completed.")
-    
-    print(C_STEP + "[Linker] " + C_CHUNK + "Establishing semantic cross-links...")
+    if not concepts:
+        print(C_ERROR + "\n[-] Error: No concepts were successfully compiled.")
+        return False
+        
+    print(C_STEP + "\n[Linker] " + C_CHUNK + "Establishing semantic cross-links...")
     linked_contents = cross_link_concepts(concepts)
     
-    print(C_STEP + "[Save] " + C_CHUNK + f"Writing index catalog and category folders to: {output_dir}")
-    write_okf_bundle(output_dir, concepts, linked_contents)
-    
-    print("\n" + C_SUCCESS + "┌" + "─" * 58 + "┐")
-    print(C_SUCCESS + "│  " + Style.BRIGHT + "SUCCESS: OKF Compilation Complete!" + " " * 22 + C_SUCCESS + "│")
-    print(C_SUCCESS + "└" + "─" * 58 + "┘")
-    print(C_SUCCESS + f"   📂 Output Directory: " + Fore.WHITE + f"{os.path.abspath(output_dir)}")
-    print(C_SUCCESS + f"   📄 Master Catalog Index: " + Fore.WHITE + f"{os.path.join(output_dir, 'index.md')}")
-    print(C_SUCCESS + "─" * 60 + "\n")
+    print(C_STEP + "[Save] " + C_CHUNK + f"Writing index catalog, graph, and category folders to: {output_dir}")
+    try:
+        write_okf_bundle(output_dir, concepts, linked_contents)
+        save_manifest(output_dir, new_manifest)
+    except Exception as e:
+        print(C_ERROR + f"[-] Error writing output bundle: {e}")
+        return False
+        
+    print("\n" + C_SUCCESS + "+" + "-" * 58 + "+")
+    print(C_SUCCESS + "|  " + Style.BRIGHT + "SUCCESS: OKF Compilation Complete!" + " " * 22 + C_SUCCESS + "|")
+    print(C_SUCCESS + "+" + "-" * 58 + "+")
+    print(C_SUCCESS + f"   Output Directory: " + Fore.WHITE + f"{os.path.abspath(output_dir)}")
+    print(C_SUCCESS + f"   Master Catalog Index: " + Fore.WHITE + f"{os.path.join(output_dir, 'index.md')}")
+    print(C_SUCCESS + "-" * 60 + "\n")
     return True
 
 def interactive_mode():
@@ -193,11 +247,11 @@ def interactive_mode():
     """
     load_dotenv()
     
-    print(C_BANNER + "\n┌" + "─" * 58 + "┐")
-    print(C_BANNER + "│ " + Style.BRIGHT + "🌌 OmniOKF: The Universal Open Knowledge Format Compiler" + "  " + C_BANNER + "│")
-    print(C_BANNER + "└" + "─" * 58 + "┘")
-    print(C_PROMPT + "   This guide will help you convert your documents step-by-step.")
-    print(C_BANNER + "─" * 60)
+    print(C_BANNER + "\n+" + "-" * 58 + "+")
+    print(C_BANNER + "| " + Style.BRIGHT + "OmniOKF: The Universal Open Knowledge Format Compiler" + "   " + C_BANNER + "|")
+    print(C_BANNER + "+" + "-" * 58 + "+")
+    print(C_PROMPT + "   This guide will help you convert your documents to a structured bundle.")
+    print(C_BANNER + "-" * 60)
     
     # 1. Ask for input path
     while True:

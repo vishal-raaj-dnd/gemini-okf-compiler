@@ -132,6 +132,22 @@ Content of the document goes here...
 
 ---
 
+## ⚡ Premium Features
+
+### 1. Incremental Compilation (Caching)
+To save LLM tokens and make compilation instant for large knowledge bases, OmniOKF features native caching:
+- The compiler computes a cryptographic MD5 hash of each document.
+- It stores this layout and concept metadata in a local `.okf/manifest.json` file.
+- On subsequent runs, if a file has not changed, it skips splitting and LLM parsing entirely and loads it instantly from the cache, reducing execution time to milliseconds and API cost to zero!
+
+### 2. Live Knowledge Graph Visualization
+Every compilation automatically generates a visual network flowchart of your knowledge base:
+- The relationships are extracted from relative markdown cross-links.
+- A native **Mermaid** flowchart block is injected directly into `.okf/index.md`.
+- GitHub and most markdown viewers will automatically render this block as an interactive graphical network, letting developers see their document dependencies visually!
+
+---
+
 ## 🤖 GitHub Action Integration
 
 To automate compilation on push events in your repository, configure the workflow located in `.github/workflows/okf-generator.yml`. Pushing new documents to GitHub will automatically compile them and commit the updated `.okf/` folder.

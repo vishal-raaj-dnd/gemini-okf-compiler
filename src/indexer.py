@@ -1,13 +1,13 @@
 import os
 import yaml
-from typing import Dict, Any
+import re
+from typing import Dict, Any, List
 
 def format_yaml_frontmatter(metadata: Dict[str, Any]) -> str:
     """
-    Formates metadata dictionary into YAML frontmatter.
+    Formats metadata dictionary into YAML frontmatter.
     Removes internal fields like 'filename' that are not part of the OKF spec.
     """
-    # Exclude internal tracking fields
     okf_meta = {
         "type": metadata.get("type"),
         "title": metadata.get("title"),
@@ -20,19 +20,82 @@ def format_yaml_frontmatter(metadata: Dict[str, Any]) -> str:
     yaml_str = yaml.safe_dump(okf_meta, default_flow_style=False, sort_keys=False, allow_unicode=True)
     return f"---\n{yaml_str}---\n"
 
+def generate_mermaid_graph(concepts: Dict[str, Dict[str, Any]]) -> str:
+    """
+    Inspects concept contents for relative markdown links to other concepts
+    and generates a Mermaid graph flowchart representation.
+    """
+    edges = []
+    nodes = {}
+    
+    # Pre-collect node labels and clean IDs
+    for concept_id, concept_data in concepts.items():
+        meta = concept_data["metadata"]
+        filename = meta["filename"]
+        title = meta["title"]
+        # Safe ID for Mermaid: letters and numbers only
+        mermaid_id = re.sub(r'[^a-zA-Z0-9]', '', filename)
+        nodes[filename] = (mermaid_id, title)
+        
+
+    # Find links in content
+    # Look for links in format [text](../category/filename.md) or [text](./filename.md)
+    link_pattern = re.compile(r'\]\((?:\./|\.\./[a-zA-Z0-9_\-]+/)?([a-zA-Z0-9_\-]+)\.md\)')
+    
+    for concept_id, concept_data in concepts.items():
+        source_meta = concept_data["metadata"]
+        source_filename = source_meta["filename"]
+        content = concept_data["content"]
+        
+        if source_filename not in nodes:
+            continue
+            
+        source_id, source_title = nodes[source_filename]
+        
+        # Scan content for target filenames
+        targets = link_pattern.findall(content)
+        for target_filename in targets:
+            if target_filename in nodes and target_filename != source_filename:
+                target_id, target_title = nodes[target_filename]
+                edge = f'    {source_id}["{source_title}"] --> {target_id}["{target_title}"]'
+                if edge not in edges:
+                    edges.append(edge)
+                    
+    # Build Mermaid graph
+    if not edges:
+        # Fallback if no links: just show nodes
+        for filename, (mermaid_id, title) in nodes.items():
+            edges.append(f'    {mermaid_id}["{title}"]')
+            
+    graph_lines = [
+        "## 📊 Knowledge Graph",
+        "",
+        "```mermaid",
+        "graph TD",
+    ]
+    graph_lines.extend(edges)
+    graph_lines.extend([
+        "```",
+        ""
+    ])
+    return "\n".join(graph_lines)
+
 def write_okf_bundle(output_dir: str, concepts: Dict[str, Dict[str, Any]], linked_contents: Dict[str, str]) -> None:
     """
     Writes the concept files and index.md to the output directory, organizing by type.
     """
-    # Create the root folder if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
+    # Update contents in concepts dict with linked contents
+    for concept_id, content in linked_contents.items():
+        concepts[concept_id]["content"] = content
+        
     # Write each concept file
     for concept_id, concept_data in concepts.items():
         meta = concept_data["metadata"]
         category = meta["type"]
         filename = meta["filename"]
-        content = linked_contents[concept_id]
+        content = concept_data["content"]
         
         # Create category folder
         category_dir = os.path.join(output_dir, category)
@@ -72,9 +135,15 @@ def generate_index_md(concepts: Dict[str, Dict[str, Any]]) -> str:
         "",
         "Welcome to the Open Knowledge Format (OKF) Bundle. Below is a structured graph index of all available concepts, processes, guides, and reference documents.",
         "",
+    ]
+    
+    # Insert Mermaid Diagram
+    lines.append(generate_mermaid_graph(concepts))
+    
+    lines.extend([
         "## Catalog by Category",
         ""
-    ]
+    ])
     
     # Sort categories alphabetically
     for category in sorted(by_category.keys()):
