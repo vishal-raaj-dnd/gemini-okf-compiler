@@ -69,15 +69,19 @@ marker path/to/pdf_folder ./temp_markdown_folder --workers 4
 
 ---
 
-### Step 2: Compile Markdown to OKF (Layer 2)
-Pass the generated Markdown file or **directory of Markdown files** to the OKF Compiler to split, extract metadata, resolve duplicate filenames, and cross-link concepts across all documents into a unified knowledge graph.
+### Step 2: Compile Documents (MD, DOCX) to OKF (Layer 2)
+Pass a flat Markdown file, a Word document (`.docx`), or a **directory containing Markdown/DOCX files** to the OKF Compiler. The engine splits the documents, extracts metadata via Gemini, resolves naming collisions, and cross-links all concepts into a unified OKF knowledge graph.
 
-**Compile a single file:**
+*Note: `.docx` files are dynamically translated to Markdown in memory during processing.*
+
+**Compile a single file (MD or DOCX):**
 ```bash
 python main.py --input ./temp_output/your_document.md --output-dir .okf
+# OR
+python main.py --input path/to/report.docx --output-dir .okf
 ```
 
-**Compile a directory (Batch Mode):**
+**Compile a directory (Batch Mode processing all MD and DOCX files):**
 ```bash
 python main.py --input ./temp_markdown_folder --output-dir .okf
 ```
@@ -85,7 +89,7 @@ python main.py --input ./temp_markdown_folder --output-dir .okf
 ---
 
 ### Command Line Arguments
-- `--input`, `-i`: Path to the input flat Markdown file **or** directory containing Markdown files (required).
+- `--input`, `-i`: Path to the input Markdown/DOCX file **or** directory containing Markdown and/or DOCX files (required).
 - `--output-dir`, `-o`: Directory where the OKF bundle will be created (default: `.okf`).
 - `--split-level`, `-s`: The header markdown prefix to split at (default: `##`).
 
