@@ -39,16 +39,35 @@ def main():
     args = parser.parse_args()
     
     if not os.path.exists(args.input):
-        print(f"Error: Input file '{args.input}' does not exist.", file=sys.stderr)
+        print(f"Error: Input path '{args.input}' does not exist.", file=sys.stderr)
         sys.exit(1)
         
-    print(f"Loading input file: {args.input}")
-    with open(args.input, "r", encoding="utf-8") as f:
-        file_content = f.read()
+    chunks = []
+    if os.path.isdir(args.input):
+        print(f"Loading input directory: {args.input}")
+        md_files = []
+        for root, dirs, files in os.walk(args.input):
+            for file in files:
+                if file.endswith((".md", ".markdown")):
+                    md_files.append(os.path.join(root, file))
         
-    print(f"Splitting document using level marker: '{args.split_level}'")
-    chunks = split_markdown(file_content, args.split_level)
-    print(f"Identified {len(chunks)} document chunks.")
+        if not md_files:
+            print(f"Error: No markdown files (.md or .markdown) found in directory '{args.input}'.", file=sys.stderr)
+            sys.exit(1)
+            
+        print(f"Found {len(md_files)} markdown files. Splitting each...")
+        for filepath in md_files:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            file_chunks = split_markdown(content, args.split_level)
+            chunks.extend(file_chunks)
+    else:
+        print(f"Loading input file: {args.input}")
+        with open(args.input, "r", encoding="utf-8") as f:
+            file_content = f.read()
+        chunks = split_markdown(file_content, args.split_level)
+        
+    print(f"Identified {len(chunks)} total document chunks.")
     
     # Check for API Key, otherwise warn and run in fallback heuristic mode
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -96,6 +115,16 @@ def main():
             cleaned_content = content
             print(f"  -> Created heuristic fallback (Filename: {meta['filename']})")
             
+        # Ensure filename uniqueness across all loaded files/chunks
+        base_filename = meta["filename"]
+        unique_filename = base_filename
+        counter = 2
+        existing_filenames = {c["metadata"]["filename"] for c in concepts.values()}
+        while unique_filename in existing_filenames:
+            unique_filename = f"{base_filename}-{counter}"
+            counter += 1
+        meta["filename"] = unique_filename
+        
         concepts[f"chunk_{idx}"] = {
             "metadata": meta,
             "content": cleaned_content

@@ -48,26 +48,44 @@ cp .env.template .env
 ## 🛠️ Usage
 
 ### Step 1: Convert PDF to Markdown (Layer 1)
-To convert a raw PDF into a flat Markdown file, we recommend using **Marker** (an advanced layout-aware tool that handles columns, tables, and OCR):
+To convert raw PDFs into flat Markdown files, we recommend using **Marker** (an advanced layout-aware tool that handles columns, tables, and OCR).
 
+**For a single PDF:**
 ```bash
 # Install marker-pdf (requires PyTorch)
 pip install marker-pdf
 
-# Convert a PDF to flat Markdown
+# Convert a single PDF to flat Markdown
 marker_single path/to/your_document.pdf --output_dir ./temp_output
 ```
-This will output a flat standard Markdown file (e.g., `./temp_output/your_document.md`).
+*Outputs: `./temp_output/your_document.md`*
+
+**For a directory of hundreds of PDFs:**
+```bash
+# Convert an entire folder of PDFs in parallel
+marker path/to/pdf_folder ./temp_markdown_folder --workers 4
+```
+*Outputs a folder full of flat `.md` files.*
+
+---
 
 ### Step 2: Compile Markdown to OKF (Layer 2)
-Pass the generated flat Markdown file to the OKF Compiler to split it into categorized concept files, generate YAML metadata via Gemini, and automatically insert relative cross-links:
+Pass the generated Markdown file or **directory of Markdown files** to the OKF Compiler to split, extract metadata, resolve duplicate filenames, and cross-link concepts across all documents into a unified knowledge graph.
 
+**Compile a single file:**
 ```bash
 python main.py --input ./temp_output/your_document.md --output-dir .okf
 ```
 
+**Compile a directory (Batch Mode):**
+```bash
+python main.py --input ./temp_markdown_folder --output-dir .okf
+```
+
+---
+
 ### Command Line Arguments
-- `--input`, `-i`: Path to the input flat Markdown file (required).
+- `--input`, `-i`: Path to the input flat Markdown file **or** directory containing Markdown files (required).
 - `--output-dir`, `-o`: Directory where the OKF bundle will be created (default: `.okf`).
 - `--split-level`, `-s`: The header markdown prefix to split at (default: `##`).
 
