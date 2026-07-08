@@ -47,10 +47,23 @@ cp .env.template .env
 
 ## 🛠️ Usage
 
-### Quick Start
-To compile a flat Markdown file into an OKF bundle:
+### Step 1: Convert PDF to Markdown (Layer 1)
+To convert a raw PDF into a flat Markdown file, we recommend using **Marker** (an advanced layout-aware tool that handles columns, tables, and OCR):
+
 ```bash
-python main.py --input raw_document.md --output-dir .okf
+# Install marker-pdf (requires PyTorch)
+pip install marker-pdf
+
+# Convert a PDF to flat Markdown
+marker_single path/to/your_document.pdf --output_dir ./temp_output
+```
+This will output a flat standard Markdown file (e.g., `./temp_output/your_document.md`).
+
+### Step 2: Compile Markdown to OKF (Layer 2)
+Pass the generated flat Markdown file to the OKF Compiler to split it into categorized concept files, generate YAML metadata via Gemini, and automatically insert relative cross-links:
+
+```bash
+python main.py --input ./temp_output/your_document.md --output-dir .okf
 ```
 
 ### Command Line Arguments
