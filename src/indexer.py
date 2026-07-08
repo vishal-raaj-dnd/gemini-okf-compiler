@@ -33,8 +33,8 @@ def generate_mermaid_graph(concepts: Dict[str, Dict[str, Any]]) -> str:
         meta = concept_data["metadata"]
         filename = meta["filename"]
         title = meta["title"]
-        # Safe ID for Mermaid: letters and numbers only
-        mermaid_id = re.sub(r'[^a-zA-Z0-9]', '', filename)
+        # Safe ID for Mermaid: must start with a letter and contain only alphanumeric chars
+        mermaid_id = "node_" + re.sub(r'[^a-zA-Z0-9]', '', filename)
         nodes[filename] = (mermaid_id, title)
         
 
