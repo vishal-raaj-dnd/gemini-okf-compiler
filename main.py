@@ -15,35 +15,37 @@ from src.indexer import write_okf_bundle
 
 def read_input_file(filepath: str) -> str:
     """
-    Reads the content of the file. If it is a DOCX file, converts it to Markdown using mammoth.
-    Otherwise, reads it as a standard text file.
+    Reads the content of the file. If it is an Office document, PDF, or HTML file,
+    converts it to Markdown using Microsoft's MarkItDown.
+    Otherwise, reads it as a standard text file (for .md/.markdown).
     """
     _, ext = os.path.splitext(filepath.lower())
-    if ext == ".docx":
-        import mammoth
-        print(f"Converting DOCX to Markdown: {filepath}")
-        with open(filepath, "rb") as docx_file:
-            result = mammoth.convert_to_markdown(docx_file)
-            for message in result.messages:
-                print(f"  [DOCX Warning] {message.message}")
-            return result.value
-    elif ext in (".md", ".markdown"):
+    if ext in (".md", ".markdown"):
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
+    elif ext in (".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm"):
+        from markitdown import MarkItDown
+        print(f"Converting {ext.upper()} to Markdown: {filepath}")
+        md = MarkItDown()
+        result = md.convert(filepath)
+        return result.text_content
     else:
-        raise ValueError(f"Unsupported file format: {ext}. Supported formats are .md, .markdown, and .docx.")
+        raise ValueError(
+            f"Unsupported file format: {ext}. "
+            "Supported formats are .md, .markdown, .pdf, .docx, .xlsx, .pptx, and .html."
+        )
 
 def main():
     # Load .env file
     load_dotenv()
     
     parser = argparse.ArgumentParser(
-        description="OKF Compiler: Transform flat Markdown and Word (.docx) files into structured, cross-linked Open Knowledge Format bundles."
+        description="OmniOKF: The Universal Open Knowledge Format (OKF) Compiler. Transform PDFs, Office docs (DOCX, XLSX, PPTX), HTML, and Markdown into structured, cross-linked OKF directories."
     )
     parser.add_argument(
         "--input", "-i",
         required=True,
-        help="Path to the input flat markdown file, .docx file, or directory containing them."
+        help="Path to the input file (PDF, DOCX, XLSX, PPTX, HTML, MD) or directory containing them."
     )
     parser.add_argument(
         "--output-dir", "-o",
@@ -63,16 +65,18 @@ def main():
         sys.exit(1)
         
     chunks = []
+    supported_extensions = (".md", ".markdown", ".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm")
+    
     if os.path.isdir(args.input):
         print(f"Loading input directory: {args.input}")
         input_files = []
         for root, dirs, files in os.walk(args.input):
             for file in files:
-                if file.lower().endswith((".md", ".markdown", ".docx")):
+                if file.lower().endswith(supported_extensions):
                     input_files.append(os.path.join(root, file))
         
         if not input_files:
-            print(f"Error: No supported files (.md, .markdown, .docx) found in directory '{args.input}'.", file=sys.stderr)
+            print(f"Error: No supported files {supported_extensions} found in directory '{args.input}'.", file=sys.stderr)
             sys.exit(1)
             
         print(f"Found {len(input_files)} document files. Processing each...")
