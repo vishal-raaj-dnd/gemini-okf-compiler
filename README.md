@@ -60,8 +60,23 @@ cp .env.template .env
 
 ## 💻 Usage
 
-### 1. Single Document Ingestion
-You can feed any supported document directly to the compiler:
+### 1. Guided Interactive Mode (Recommended)
+If you do not want to use command line flags, simply run the tool directly. It will guide you step-by-step:
+```bash
+python main.py
+```
+This guided mode only requires two quick inputs:
+1. **The path to your file or folder** (you can drag and drop it into the terminal).
+2. **Your Gemini API Key** (it will auto-detect it if set in `.env`, or prompt you to paste it temporarily).
+
+OmniOKF compiles everything automatically using default configurations (output folder `.okf`, heading split `##`).
+
+---
+
+### 2. CLI Mode (For Advanced Users)
+You can also bypass the prompts and compile files directly using command line flags:
+
+**Ingest single documents:**
 ```bash
 # Compile a PDF
 python main.py --input manuals/onboarding.pdf --output-dir .okf
@@ -73,12 +88,13 @@ python main.py --input specifications/spec_doc.docx --output-dir .okf
 python main.py --input finance/pl-report.xlsx --output-dir .okf
 ```
 
-### 2. Batch Directory Ingestion
-To compile an entire folder of mixed document types in one run:
+**Ingest a directory of mixed files:**
 ```bash
 python main.py --input ./raw_corporate_documents --output-dir .okf
 ```
 *OmniOKF will scan, convert, split, and cross-link all `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`, and `.md` files in the folder.*
+
+---
 
 ### Command Line Arguments
 - `--input`, `-i`: Path to the input file or directory containing files (required).
