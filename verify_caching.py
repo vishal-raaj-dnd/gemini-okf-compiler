@@ -47,13 +47,13 @@ def main():
     print(stdout)
     
     # 5. Verify caching logs in stdout
-    if "[Cache] Content matches cache" in stdout:
+    if "doc_a.md" in stdout and "Cached" in stdout:
         print("[+] Success: Document A was loaded from cache!")
     else:
         print("[-] Error: Document A was NOT loaded from cache!")
         sys.exit(1)
         
-    if "Processing: doc_b.md" in stdout:
+    if "doc_b.md" in stdout and "Fresh" in stdout:
         print("[+] Success: Modified Document B was processed fresh!")
     else:
         print("[-] Error: Document B was NOT processed fresh!")

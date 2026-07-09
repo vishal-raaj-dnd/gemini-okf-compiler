@@ -85,6 +85,53 @@ def read_input_file(filepath: str) -> str:
             "Supported formats are .md, .markdown, .pdf, .docx, .xlsx, .pptx, and .html."
         )
 
+def print_summary_table(summary_list):
+    """Prints a beautiful, highly professional ASCII table summarizing the ingestion run."""
+    print("\n" + Fore.CYAN + Style.BRIGHT + "+" + "-" * 68 + "+")
+    print(Fore.CYAN + Style.BRIGHT + "| " + Fore.WHITE + Style.BRIGHT + "OmniOKF Ingestion Summary".center(66) + Fore.CYAN + Style.BRIGHT + " |")
+    print(Fore.CYAN + Style.BRIGHT + "+" + "-" * 30 + "+" + "-" * 10 + "+" + "-" * 10 + "+" + "-" * 14 + "+")
+    print(Fore.CYAN + Style.BRIGHT + "| " + Fore.WHITE + "File Name".ljust(28) + 
+          Fore.CYAN + "| " + Fore.WHITE + "Type".ljust(8) + 
+          Fore.CYAN + "| " + Fore.WHITE + "Chunks".ljust(8) + 
+          Fore.CYAN + "| " + Fore.WHITE + "Status".ljust(12) + 
+          Fore.CYAN + " |")
+    print(Fore.CYAN + Style.BRIGHT + "+" + "-" * 30 + "+" + "-" * 10 + "+" + "-" * 10 + "+" + "-" * 14 + "+")
+    
+    total_chunks = 0
+    cached_chunks = 0
+    
+    for item in summary_list:
+        name = item["name"]
+        if len(name) > 26:
+            name = name[:23] + "..."
+        file_type = item["type"]
+        chunks = item["chunks"]
+        status = item["status"]
+        
+        if status == "Fresh":
+            status_color = Fore.GREEN + Style.BRIGHT
+        elif status == "Cached":
+            status_color = Fore.BLUE
+        else:
+            status_color = Fore.RED + Style.BRIGHT
+            
+        print(Fore.CYAN + "| " + Fore.WHITE + name.ljust(28) + 
+              Fore.CYAN + "| " + Fore.WHITE + file_type.ljust(8) + 
+              Fore.CYAN + "| " + str(chunks).rjust(8) + " " + 
+              Fore.CYAN + "| " + status_color + status.ljust(12) + 
+              Fore.CYAN + " |")
+              
+        total_chunks += chunks
+        if status == "Cached":
+            cached_chunks += chunks
+            
+    print(Fore.CYAN + Style.BRIGHT + "+" + "-" * 30 + "+" + "-" * 10 + "+" + "-" * 10 + "+" + "-" * 14 + "+")
+    
+    cache_pct = int((cached_chunks / total_chunks) * 100) if total_chunks > 0 else 0
+    summary_text = f"Total Concepts: {total_chunks} | Cached: {cache_pct}%"
+    print(Fore.CYAN + Style.BRIGHT + "| " + Fore.WHITE + Style.BRIGHT + summary_text.center(66) + Fore.CYAN + Style.BRIGHT + " |")
+    print(Fore.CYAN + Style.BRIGHT + "+" + "-" * 68 + "+\n")
+
 def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, api_key: str = None):
     """
     Core compilation pipeline that reads, parses, splits, metadata-extracts,
@@ -129,22 +176,29 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
     new_manifest = {}
     concepts = {}
     concept_idx = 1
+    file_summary = []
     
     # Process files
     for filepath in input_files:
         filename = os.path.basename(filepath)
-        print(C_STEP + f"\n  [File] " + C_FILE + f"Processing: {filename}")
+        _, ext = os.path.splitext(filepath.lower())
+        file_type_label = ext[1:].upper()
         
         try:
             file_hash = calculate_file_hash(filepath)
         except Exception as e:
-            print(C_ERROR + f"    [-] Error calculating hash for '{filename}': {e}")
+            print(C_ERROR + f"\n  [-] Error calculating hash for '{filename}': {e}")
+            file_summary.append({
+                "name": filename,
+                "type": file_type_label,
+                "chunks": 0,
+                "status": "Failed"
+            })
             continue
             
         # Check cache
         cached_entry = manifest.get(filepath)
         if cached_entry and cached_entry.get("hash") == file_hash:
-            print(C_SUCCESS + f"    [Cache] Content matches cache. Loading concepts instantly...")
             cached_concepts = cached_entry.get("concepts", [])
             for concept_data in cached_concepts:
                 meta = concept_data["metadata"]
@@ -164,28 +218,45 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
                     "content": concept_data["content"]
                 }
                 concept_idx += 1
+                
             new_manifest[filepath] = cached_entry
+            file_summary.append({
+                "name": filename,
+                "type": file_type_label,
+                "chunks": len(cached_concepts),
+                "status": "Cached"
+            })
             continue
             
-        # Parse document
-        print(C_INFO + f"    [Convert] Converting document structure to Markdown...")
+        # Parse document fresh
         try:
             content = read_input_file(filepath)
             file_chunks = split_markdown(content, split_level)
-            print(C_SUCCESS + f"    [Split] Segmented into {len(file_chunks)} logical sections.")
         except Exception as e:
-            print(C_ERROR + f"    [-] Error converting document '{filename}': {e}")
-            print(C_INFO + "        Suggestion: Check if the file is locked, corrupted, or password-protected.")
+            print(C_ERROR + f"\n  [-] Error converting document '{filename}': {e}")
+            file_summary.append({
+                "name": filename,
+                "type": file_type_label,
+                "chunks": 0,
+                "status": "Failed"
+            })
             continue
             
         file_concepts = []
+        total_file_chunks = len(file_chunks)
+        
         for idx, chunk in enumerate(file_chunks, 1):
             header = chunk["header"]
             body = chunk["content"]
             
-            # Display inline progress
+            # Dynamic Progress Bar setup (updates in-place)
+            percent = int((idx / total_file_chunks) * 100)
+            bar_len = 25
+            filled_len = int(bar_len * idx // total_file_chunks)
+            bar = '=' * filled_len + '-' * (bar_len - filled_len)
+            
             sys.stdout.write(
-                "\r" + C_STEP + f"    [LLM] " + C_CHUNK + f"Structuring section {idx}/{len(file_chunks)}: " + C_FILE + f"\"{header[:25]}...\""
+                f"\r{C_STEP}  [Process] {Fore.WHITE}[{bar}] {percent}% | {C_FILE}{filename[:15]} {C_CHUNK}-> {C_FILE}\"{header[:20]}...\""
             )
             sys.stdout.flush()
             
@@ -196,8 +267,7 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
                 try:
                     os.environ["GEMINI_API_KEY"] = api_key
                     meta, cleaned_content = extract_metadata(body)
-                except Exception as e:
-                    # Fallback silently on LLM errors to keep output clean, but note details
+                except Exception:
                     pass
                     
             # Fallback metadata
@@ -236,17 +306,21 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
             concepts[f"chunk_{concept_idx}"] = concept_entry
             concept_idx += 1
             
-        # Clean progress line
+        # Clear progress line
         if file_chunks:
-            sys.stdout.write("\r" + " " * 75 + "\r")
+            sys.stdout.write("\r" + " " * 95 + "\r")
             sys.stdout.flush()
-            print(C_SUCCESS + f"    [+] Processed {len(file_chunks)} sections successfully.")
             
-        # Store in manifest
         new_manifest[filepath] = {
             "hash": file_hash,
             "concepts": file_concepts
         }
+        file_summary.append({
+            "name": filename,
+            "type": file_type_label,
+            "chunks": total_file_chunks,
+            "status": "Fresh"
+        })
         
     if not concepts:
         print(C_ERROR + "\n[-] Error: No concepts were successfully compiled.")
@@ -263,7 +337,10 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
         print(C_ERROR + f"[-] Error writing output bundle: {e}")
         return False
         
-    print("\n" + C_SUCCESS + "+" + "-" * 58 + "+")
+    # Render final ingestion summary table
+    print_summary_table(file_summary)
+    
+    print(C_SUCCESS + "+" + "-" * 58 + "+")
     print(C_SUCCESS + "|  " + Style.BRIGHT + "SUCCESS: OKF Compilation Complete!" + " " * 22 + C_SUCCESS + "|")
     print(C_SUCCESS + "+" + "-" * 58 + "+")
     print(C_SUCCESS + f"   Output Directory: " + Fore.WHITE + f"{os.path.abspath(output_dir)}")
