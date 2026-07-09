@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 pyyaml>=6.0
 markitdown[pdf]>=0.0.1a2
 pymupdf>=1.22.0
+rich>=13.0.0
