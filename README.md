@@ -8,6 +8,17 @@ By utilizing Microsoft's `markitdown` for in-memory document parsing and Gemini 
 
 ---
 
+## 💡 Why This Tool Helps
+
+Traditional AI systems (RAG) suffer from three major bottlenecks when working with corporate documents:
+
+1. **The "Garbage In, Garbage Out" Problem**: Messy PDFs, scanned documents, and spreadsheets break standard text splitters. OmniOKF cleans, infers structural headers, and filters out noise *before* the AI sees it.
+2. **Context Window Clutter**: Sending a massive 100-page document or retrieving 10 giant chunks into an LLM context is extremely expensive and slow. OmniOKF splits your database into **atomic concept files (200-500 tokens each)**, reducing token consumption by **75% to 95%** per query.
+3. **Loss of Interconnected Context**: Standard search indexes treat chunks like isolated text blocks. OmniOKF builds a **zero-database Knowledge Graph** using relative Markdown links, allowing AI Agents to traverse related specifications (e.g., following `[Celery SSL]` back to `[Redis Message Broker]`) naturally.
+4. **Offline and Compliance Safe**: Enterprise teams with sensitive data can run the compiler **100% offline** using the built-in Heuristic Classifier, ensuring zero data is sent to cloud APIs.
+
+---
+
 ## ✨ Features
 
 - **🚀 Universal Ingestion**: Compiles `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`, and `.md` files natively.
@@ -45,8 +56,8 @@ Instead of feeding a giant 100-page document to the LLM (wasting thousands of co
 
 ### 2. Install
 ```bash
-git clone https://github.com/vishal-raaj-dnd/OKF-Compiler-PDF-to-Markdown-to-OKF-Open-Knowledge-Format-.git
-cd OKF-Compiler-PDF-to-Markdown-to-OKF-Open-Knowledge-Format-
+git clone https://github.com/vishal-raaj-dnd/gemini-okf-compiler.git
+cd gemini-okf-compiler
 pip install -r requirements.txt
 ```
 
