@@ -1,5 +1,6 @@
 import re
 import os
+import math
 from typing import Dict, Any, List
 
 def get_relative_path(source_type: str, target_type: str, target_filename: str) -> str:
@@ -16,9 +17,6 @@ def get_link_keywords(title: str) -> List[str]:
     """
     Generates alternative search keywords/phrases from a concept title.
     Strips leading numbers and trailing parentheticals.
-    
-    Example:
-        "3.2 Celery (Async Task Worker)" -> ["3.2 Celery (Async Task Worker)", "Celery", "Celery (Async Task Worker)"]
     """
     keywords = [title]
     
@@ -46,82 +44,157 @@ def get_link_keywords(title: str) -> List[str]:
         if len(kw_strip) >= 4 and kw_strip.lower() not in stopwords:
             valid_keywords.append(kw_strip)
             
-    # Sort keywords by length descending to match longer phrases first
     return sorted(list(set(valid_keywords)), key=len, reverse=True)
 
 def cross_link_concepts(concepts: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
     """
     Performs robust auto-linking of concepts.
-    Scans each concept's body content for references to target concept titles
-    or their clean keywords (e.g., "Flask" -> "3.1 Flask (Webhook Receiver)")
-    and automatically replaces them with standard Markdown relative links.
+    Uses a dynamic TF-IDF relevance calculation to ensure that alternative keywords
+    (like 'Flask') are only turned into links in documents where they are highly relevant,
+    preventing keyword link scaling collisions in large enterprise databases.
     """
-    # Pre-generate keywords and target info for each target concept
+    # 1. Pre-generate keyword maps
     targets_info = []
-    for target in concepts.values():
+    for target_id, target in concepts.items():
         target_meta = target["metadata"]
         target_title = target_meta["title"]
         target_type = target_meta["type"]
         target_filename = target_meta["filename"]
         
-        # Generate match keywords (e.g. "Flask", "Celery", etc.)
         keywords = get_link_keywords(target_title)
         
         targets_info.append({
+            "id": target_id,
             "title": target_title,
             "type": target_type,
             "filename": target_filename,
             "keywords": keywords
         })
         
-    # Sort overall targets by the length of their longest keyword to prevent partial matches
-    targets_info.sort(
-        key=lambda x: len(x["keywords"][0]) if x["keywords"] else len(x["title"]),
-        reverse=True
-    )
-    
+    N = len(concepts)
+    if N == 0:
+        return {}
+        
+    # 2. Pre-calculate Document Frequency (DF) for each keyword
+    # DF = number of documents containing the keyword (case-insensitive)
+    keyword_df = {}
+    for target in targets_info:
+        for kw in target["keywords"]:
+            df_count = 0
+            for doc in concepts.values():
+                if re.search(rf"\b{re.escape(kw.lower())}\b", doc["content"].lower()):
+                    df_count += 1
+            keyword_df[kw] = df_count
+            
+    # 3. Calculate TF-IDF for all potential links in each document
+    # Also count word lengths in each document
+    doc_word_counts = {}
+    for cid, doc in concepts.items():
+        words = re.findall(r"\w+", doc["content"].lower())
+        doc_word_counts[cid] = max(len(words), 1)  # avoid division by 0
+        
     updated_contents = {}
     
-    for concept_id, concept_data in concepts.items():
+    for source_id, concept_data in concepts.items():
         content = concept_data["content"]
         source_meta = concept_data["metadata"]
         source_type = source_meta["type"]
         source_title = source_meta["title"]
         
+        doc_words_len = doc_word_counts[source_id]
+        
+        # We will collect all potential keyword link matches in this document and score them
+        scored_links = []
+        
         for target in targets_info:
+            target_id = target["id"]
+            # Avoid self-linking
+            if target_id == source_id:
+                continue
+                
             target_title = target["title"]
             target_type = target["type"]
             target_filename = target["filename"]
             target_keywords = target["keywords"]
             
-            # Avoid self-linking
-            if target_title.lower() == source_title.lower():
+            for kw in target_keywords:
+                # Count raw occurrences of this keyword in the document
+                kw_matches = len(re.findall(rf"\b{re.escape(kw.lower())}\b", content.lower()))
+                if kw_matches == 0:
+                    continue
+                    
+                # TF-IDF Calculation
+                tf = kw_matches / doc_words_len
+                df = keyword_df.get(kw, 1)
+                idf = math.log(1 + (N / (1 + df)))
+                tfidf = tf * idf
+                
+                # Check if it's an exact title match (always highly relevant)
+                is_exact = kw.lower() == target_title.lower()
+                
+                scored_links.append({
+                    "keyword": kw,
+                    "target_title": target_title,
+                    "target_type": target_type,
+                    "target_filename": target_filename,
+                    "tfidf": tfidf,
+                    "is_exact": is_exact
+                })
+                
+        # To avoid link scaling collisions, we sort the candidate links:
+        # 1. Exact title matches are prioritised.
+        # 2. Then sort by TF-IDF score descending.
+        scored_links.sort(key=lambda x: (x["is_exact"], x["tfidf"]), reverse=True)
+        
+        # Enforce threshold and limit maximum links per document to 4
+        active_links = []
+        seen_targets = set()
+        
+        TF_IDF_THRESHOLD = 0.008
+        MAX_LINKS_PER_DOC = 4
+        
+        for link in scored_links:
+            target_key = f"{link['target_type']}/{link['target_filename']}"
+            if target_key in seen_targets:
                 continue
                 
+            # Filter: must exceed relevance threshold OR be an exact title match
+            if link["is_exact"] or link["tfidf"] >= TF_IDF_THRESHOLD:
+                active_links.append(link)
+                seen_targets.add(target_key)
+                if len(active_links) >= MAX_LINKS_PER_DOC:
+                    break
+                    
+        # Apply the active links (ordered longest keyword first to prevent partial matches)
+        active_links.sort(key=lambda x: len(x["keyword"]), reverse=True)
+        
+        for link in active_links:
+            kw = link["keyword"]
+            target_type = link["target_type"]
+            target_filename = link["target_filename"]
+            
             rel_path = get_relative_path(source_type, target_type, target_filename)
             
-            # Match each keyword for this target
-            for kw in target_keywords:
-                # Add word boundary only if keyword starts/ends with alphanumeric characters
-                prefix = r"\b" if re.match(r"^\w", kw) else ""
-                suffix = r"\b" if re.search(r"\w$", kw) else ""
-                
-                # Group 1: Matches existing markdown links [text](url) - return as is
-                # Group 2: Matches the keyword with word boundaries - wraps in a markdown link
-                pattern = re.compile(
-                    rf"(\[.*?\]\(.*?\))|({prefix}{re.escape(kw)}{suffix})",
-                    re.IGNORECASE
-                )
-                
-                def replace_callback(match):
-                    if match.group(1):
-                        return match.group(1)
-                    else:
-                        matched_text = match.group(2)
-                        return f"[{matched_text}]({rel_path})"
-                        
-                content = pattern.sub(replace_callback, content)
-                
-        updated_contents[concept_id] = content
+            # Match boundary only if keyword starts/ends with alphanumeric characters
+            prefix = r"\b" if re.match(r"^\w", kw) else ""
+            suffix = r"\b" if re.search(r"\w$", kw) else ""
+            
+            # Group 1: Matches existing markdown links [text](url) - return as is
+            # Group 2: Matches the keyword with word boundaries - wraps in a markdown link
+            pattern = re.compile(
+                rf"(\[.*?\]\(.*?\))|({prefix}{re.escape(kw)}{suffix})",
+                re.IGNORECASE
+            )
+            
+            def replace_callback(match):
+                if match.group(1):
+                    return match.group(1)
+                else:
+                    matched_text = match.group(2)
+                    return f"[{matched_text}]({rel_path})"
+                    
+            content = pattern.sub(replace_callback, content)
+            
+        updated_contents[source_id] = content
         
     return updated_contents

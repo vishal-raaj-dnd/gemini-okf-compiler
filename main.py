@@ -65,15 +65,18 @@ def deduplicate_text(text: str) -> str:
 
 def read_input_file(filepath: str) -> str:
     """
-    Reads the content of the file. If it is an Office document, PDF, or HTML file,
-    converts it to Markdown using Microsoft's MarkItDown.
-    Otherwise, reads it as a standard text file (for .md/.markdown).
+    Reads the content of the file. If it is a PDF file, uses the custom layout-aware
+    parser to reconstruct structural headers. If it is another Office document,
+    uses Microsoft MarkItDown. Standard text/md is read directly.
     """
     _, ext = os.path.splitext(filepath.lower())
     if ext in (".md", ".markdown"):
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
-    elif ext in (".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm"):
+    elif ext == ".pdf":
+        from src.pdf_layout import parse_pdf_layout
+        return parse_pdf_layout(filepath)
+    elif ext in (".docx", ".xlsx", ".pptx", ".html", ".htm"):
         from markitdown import MarkItDown
         md = MarkItDown()
         result = md.convert(filepath)
@@ -131,6 +134,28 @@ def print_summary_table(summary_list):
     summary_text = f"Total Concepts: {total_chunks} | Cached: {cache_pct}%"
     print(Fore.CYAN + Style.BRIGHT + "| " + Fore.WHITE + Style.BRIGHT + summary_text.center(66) + Fore.CYAN + Style.BRIGHT + " |")
     print(Fore.CYAN + Style.BRIGHT + "+" + "-" * 68 + "+\n")
+
+def extract_metadata_with_retry(body: str, max_retries: int = 3) -> tuple:
+    """
+    Calls extract_metadata with exponential backoff and random jitter.
+    Gracefully falls back to heuristic generation if rate limits are exhausted.
+    """
+    import time
+    import random
+    delay = 2.0  # starting delay of 2 seconds
+    for attempt in range(max_retries):
+        try:
+            return extract_metadata(body)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "resource_exhausted" in err_str or "rate limit" in err_str:
+                jitter = random.uniform(0.5, 1.5)
+                wait_time = delay * jitter
+                time.sleep(wait_time)
+                delay *= 2.0  # double the delay for the next attempt
+            else:
+                raise e
+    raise RuntimeError("API retries exhausted.")
 
 def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, api_key: str = None):
     """
@@ -266,25 +291,14 @@ def run_compiler_pipeline(input_path: str, output_dir: str, split_level: str, ap
             if api_key:
                 try:
                     os.environ["GEMINI_API_KEY"] = api_key
-                    meta, cleaned_content = extract_metadata(body)
+                    meta, cleaned_content = extract_metadata_with_retry(body)
                 except Exception:
                     pass
                     
             # Fallback metadata
             if not meta:
-                slug = re.sub(r'[^a-z0-9\-]', '', header.lower().replace(' ', '-').replace('_', '-'))
-                slug = slug.strip('-')
-                if not slug:
-                    slug = f"concept-{concept_idx}"
-                    
-                meta = {
-                    "type": "concept",
-                    "title": header,
-                    "description": f"Section covering: {header}.",
-                    "tags": ["uncategorized"],
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "filename": slug
-                }
+                from src.parser import smart_local_classify
+                meta = smart_local_classify(header, body, concept_idx)
                 cleaned_content = body
                 
             # Uniqueness check

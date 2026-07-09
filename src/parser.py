@@ -61,3 +61,74 @@ def split_markdown(content: str, split_level: str = "##") -> List[Dict[str, Any]
         })
         
     return chunks
+
+def smart_local_classify(header: str, content: str, idx: int) -> dict:
+    """
+    Performs robust offline metadata generation, mimicking an LLM classifier.
+    Extracts type classification, lead-sentence descriptions, and taxonomy tags.
+    """
+    text_lower = (header + " " + content).lower()
+    
+    # 1. Infer OKF Type Category
+    inferred_type = "concept"
+    
+    guide_kws = ["guide", "tutorial", "how-to", "install", "step", "configure", "setup", "initialize", "instruction", "manual"]
+    process_kws = ["process", "procedure", "workflow", "lifecycle", "incident", "trigger", "onboarding", "flowchart", "deployment", "protocol"]
+    reference_kws = ["schema", "table", "database", "key", "env", "credentials", "variables", "parameters", "config", "constants", "reference"]
+    
+    if any(kw in text_lower for kw in reference_kws):
+        inferred_type = "reference"
+    elif any(kw in text_lower for kw in process_kws):
+        inferred_type = "process"
+    elif any(kw in text_lower for kw in guide_kws):
+        inferred_type = "guide"
+        
+    # 2. Extract Lead-Paragraph Description (Cleaned of Markdown formatting)
+    # Remove markdown headers and code blocks from description text
+    clean_desc = re.sub(r'^(#+)\s+.*$', '', content, flags=re.MULTILINE)
+    clean_desc = re.sub(r'```.*?```', '', clean_desc, flags=re.DOTALL)
+    clean_desc = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_desc)  # clean links
+    clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
+    
+    # Take first two sentences
+    sentences = re.split(r'(?<=[.!?])\s+', clean_desc)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
+    
+    if sentences:
+        description = " ".join(sentences[:2])
+        if len(description) > 180:
+            description = description[:177] + "..."
+    else:
+        description = f"Documentation covering parameters and specifications for {header}."
+        
+    # 3. Taxonomy Tag Scanning
+    taxonomy = [
+        "redis", "celery", "postgres", "sqlite", "drizzle", "groq", "llama", "twilio", 
+        "whatsapp", "supabase", "ssl", "webhook", "aws", "docker", "python", "javascript", 
+        "react", "html", "css", "flask", "django", "fastapi", "rag", "embedding", "security"
+    ]
+    
+    tags = []
+    for term in taxonomy:
+        # Match as whole word boundary to prevent partial matches like 'as' in 'flask'
+        if re.search(rf"\b{term}\b", text_lower):
+            tags.append(term)
+            
+    if not tags:
+        tags = ["general"]
+        
+    # Create clean file slug
+    slug = re.sub(r'[^a-z0-9\-]', '', header.lower().replace(' ', '-').replace('_', '-'))
+    slug = slug.strip('-')
+    if not slug:
+        slug = f"concept-{idx}"
+        
+    from datetime import datetime
+    return {
+        "type": inferred_type,
+        "title": header,
+        "description": description,
+        "tags": tags,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "filename": slug
+    }
