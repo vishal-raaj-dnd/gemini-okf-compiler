@@ -30,6 +30,39 @@ C_INFO = Fore.BLUE + Style.BRIGHT
 C_FILE = Fore.CYAN
 C_CHUNK = Fore.WHITE
 
+def deduplicate_text(text: str) -> str:
+    """
+    Cleans up lines where the exact same heading or phrase is repeated back-to-back
+    due to Word document TOC run duplicates (e.g., "1. System Overview1. System Overview").
+    """
+    lines = text.splitlines()
+    cleaned_lines = []
+    for line in lines:
+        line_strip = line.strip()
+        if not line_strip:
+            cleaned_lines.append(line)
+            continue
+            
+        # Check if the line is exactly split into two identical halves
+        mid = len(line_strip) // 2
+        if len(line_strip) % 2 == 0:
+            left, right = line_strip[:mid], line_strip[mid:]
+            if left == right:
+                # Retain original leading whitespace
+                lead_space = line[:line.find(line_strip)]
+                cleaned_lines.append(lead_space + left)
+                continue
+                
+        # Also check with regex for generic back-to-back repeated phrases
+        match = re.match(r'^(.{3,})\1$', line_strip)
+        if match:
+            lead_space = line[:line.find(line_strip)]
+            cleaned_lines.append(lead_space + match.group(1))
+            continue
+            
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
+
 def read_input_file(filepath: str) -> str:
     """
     Reads the content of the file. If it is an Office document, PDF, or HTML file,
@@ -44,7 +77,8 @@ def read_input_file(filepath: str) -> str:
         from markitdown import MarkItDown
         md = MarkItDown()
         result = md.convert(filepath)
-        return result.text_content
+        raw_text = result.text_content
+        return deduplicate_text(raw_text)
     else:
         raise ValueError(
             f"Unsupported file format: {ext}. "
