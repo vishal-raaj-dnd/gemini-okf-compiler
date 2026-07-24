@@ -1,5 +1,7 @@
 # 🌌 OmniOKF: The Universal Open Knowledge Format Compiler
 
+[![OKF BundleDex](https://bundledex.net/static-badge.svg)](https://bundledex.net)
+
 > Turn unstructured document mess into clean, semantic, cross-linked Knowledge Graphs designed for AI Agents and RAG pipelines.
 
 **OmniOKF** is a high-performance, zero-system-dependency compiler that transforms raw, fragmented enterprise documentation (PDFs, Word files, Excel sheets, PowerPoints, HTML web pages, and Markdown) into agent-ready **Open Knowledge Format (OKF)** bundles. 
