@@ -1,92 +1,134 @@
-# OmniOKF: The Universal Open Knowledge Format Compiler
+<p align="center">
+  <img src="social_preview.png" alt="OmniOKF" width="720" />
+</p>
 
-[![OKF BundleDex](https://bundledex.net/static-badge.svg)](https://bundledex.net)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+<h1 align="center">OmniOKF</h1>
+<p align="center"><strong>The Universal Open Knowledge Format Compiler</strong></p>
 
-> Turn unstructured documents into clean, semantic, cross-linked Markdown Knowledge Graphs designed for AI Agents and RAG pipelines.
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" /></a>
+  <a href="https://github.com/vishal-raaj-dnd/gemini-okf-compiler/actions"><img src="https://img.shields.io/github/actions/workflow/status/vishal-raaj-dnd/gemini-okf-compiler/ci.yml?branch=main&style=flat-square&label=tests" alt="CI" /></a>
+</p>
 
-**OmniOKF** compiles raw enterprise documentation (PDFs, Word files, Excel sheets, PowerPoints, HTML pages, and Markdown) into agent-ready **Open Knowledge Format (OKF)** bundles.
-
-It combines layout-aware PDF parsing (`PyMuPDF`), Office document conversion (`markitdown`), optional **Gemini** structured metadata extraction, TF-IDF cross-linking, and incremental MD5 caching into a single CLI.
-
----
-
-## Why OmniOKF
-
-1. **Structured Ingestion**: Extracts headings from PDFs via font-size/boldness analysis and cleans Office TOC duplicates before chunking.
-2. **Focused Context Loading**: Splits documents at configurable header boundaries into categorized Markdown files with YAML frontmatter, so agents read only the concepts they need instead of entire 100-page files.
-3. **Zero-Database Knowledge Graph**: Generates relative Markdown links between related concepts (`[Incident Response](../process/incident-response.md)`), a master `index.md` with a Mermaid flowchart, and an interactive `visualizer.html`.
-4. **Offline & Compliance Ready**: Run with `--offline` (or without a Gemini API key) to classify, tag, and cross-link 100% locally with zero external LLM API calls.
+<p align="center">
+  Turn messy PDFs, Word docs, spreadsheets, and HTML pages into clean, cross-linked<br/>
+  <strong>Markdown Knowledge Graphs</strong> that AI agents can navigate like a wiki.
+</p>
 
 ---
 
-## Installation & Setup
+## The Problem
 
-### Prerequisites
-- Python **3.10+**
-- *(Optional)* A Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/) for LLM-powered metadata extraction
+You have 50 internal docs scattered across PDFs, Word files, and HTML pages. You feed them into a RAG pipeline and get:
 
-### Install
-```bash
-git clone https://github.com/vishal-raaj-dnd/gemini-okf-compiler.git
-cd gemini-okf-compiler
-pip install -e .
+- 💸 **Token waste** — entire 100-page documents stuffed into context windows
+- 🧩 **Lost connections** — chunks treated as isolated text blocks with no linking
+- 🗑️ **Garbage in, garbage out** — messy formatting, duplicated TOC entries, broken headers
+
+## The Solution
+
+OmniOKF compiles your documents into an **OKF bundle** — a directory of small, categorized Markdown files with YAML metadata, relative cross-links, and a master index:
+
 ```
-*(Or install dependencies directly with `pip install -r requirements.txt`.)*
-
-### Configure Credentials (Optional)
-```bash
-cp .env.template .env
-# Edit .env to set GEMINI_API_KEY, GEMINI_MODEL, and OKF_OUTPUT_DIR
+Input: 50 messy documents          Output: .okf/ knowledge graph
+┌──────────────────────┐           ┌──────────────────────────┐
+│ onboarding.pdf       │           │ index.md (master catalog)│
+│ runbook.docx         │  ──────▶  │ guide/onboarding.md      │
+│ schema.xlsx          │           │ process/incident.md      │
+│ architecture.html    │           │ reference/db-schema.md   │
+│ ...47 more files     │           │ visualizer.html (graph)  │
+└──────────────────────┘           └──────────────────────────┘
 ```
+
+An AI agent reads `index.md`, picks the 2-3 concept files it needs, follows cross-links to related topics, and answers with **75-95% fewer tokens** than dumping the raw documents.
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Universal Ingestion** | `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`, `.md` — all natively supported |
+| **Layout-Aware PDF Parsing** | Infers `#`, `##`, `###` headings from font size ratios and bold styling via PyMuPDF |
+| **Gemini Metadata Extraction** | Structured JSON output via `gemini-2.0-flash` for type, title, description, tags, and filename |
+| **Offline Heuristic Mode** | Full compilation with zero API calls — classify, tag, and cross-link locally with `--offline` |
+| **TF-IDF Cross-Linking** | Automatically generates relative Markdown links between related concepts |
+| **Mermaid Knowledge Graph** | `index.md` includes a Mermaid flowchart; `visualizer.html` renders it interactively |
+| **Incremental Caching** | MD5 hashes + build config in `manifest.json` — unchanged files compile in milliseconds |
+| **Stale File Cleanup** | `--clean` removes orphaned output files no longer in the build |
+| **Path-Safe Output** | All LLM-returned filenames and categories are sanitized to prevent traversal |
 
 ---
 
 ## Quickstart
 
-Try it immediately on the included sample handbook without an API key:
+### 1. Install
+
 ```bash
-python main.py --input example_raw.md --output-dir .okf --offline --clean
+git clone https://github.com/vishal-raaj-dnd/gemini-okf-compiler.git
+cd gemini-okf-compiler
+pip install -e .
 ```
 
-Or if installed via `pip install -e .`:
+### 2. Compile (no API key needed)
+
 ```bash
-omniokf --input example_raw.md --output-dir .okf --offline --clean
+omniokf --input example_raw.md --offline --clean
 ```
+
+### 3. Explore the output
+
+```bash
+cat .okf/index.md           # Master catalog with Mermaid graph
+ls .okf/guide/              # Categorized concept files
+open .okf/visualizer.html   # Interactive knowledge graph
+```
+
+---
+
+## Usage
 
 ### Interactive Mode
-Run without arguments for a guided prompt:
 ```bash
-python main.py
+python main.py              # Guided step-by-step prompts
 ```
 
 ### CLI Mode
 ```bash
-# Compile a PDF using Gemini metadata extraction
-omniokf --input manuals/onboarding.pdf --output-dir .okf
+# Compile a PDF with Gemini metadata extraction
+omniokf -i manuals/onboarding.pdf
 
-# Compile an entire directory of mixed documents and prune stale outputs
-omniokf --input ./raw_documents --output-dir .okf --clean
+# Compile a directory of mixed documents
+omniokf -i ./raw_documents --clean
 
-# Force offline heuristic mode and bypass cache
-omniokf --input ./raw_documents --offline --no-cache
+# Offline mode, bypass cache, custom split level
+omniokf -i ./raw_documents --offline --no-cache --split-level "#"
+
+# Use a specific Gemini model
+omniokf -i ./docs --model gemini-2.5-flash
 ```
 
-### Command Line Arguments
-- `--input`, `-i`: Path to the input file or directory containing files (required in CLI mode).
-- `--output-dir`, `-o`: Directory where the OKF bundle will be created (default: `OKF_OUTPUT_DIR` or `.okf`).
-- `--split-level`, `-s`: Markdown header prefix to split at (default: `##`).
-- `--model`, `-m`: Gemini model name for metadata extraction (default: `GEMINI_MODEL` or `gemini-2.0-flash`).
-- `--offline`: Force offline heuristic classification without calling Gemini.
-- `--no-cache`: Ignore `manifest.json` cache and recompile all files.
-- `--clean`: Remove stale `.md` files in `output-dir` no longer present in the build.
-- `--version`: Print the installed version and exit.
+### All Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--input`, `-i` | Input file or directory (required) | — |
+| `--output-dir`, `-o` | Output bundle directory | `.okf` |
+| `--split-level`, `-s` | Markdown header level to split at | `##` |
+| `--model`, `-m` | Gemini model for metadata extraction | `gemini-2.0-flash` |
+| `--offline` | Skip all Gemini API calls | `false` |
+| `--no-cache` | Ignore `manifest.json` and recompile everything | `false` |
+| `--clean` | Remove stale `.md` files from previous builds | `false` |
+| `--version` | Print version and exit | — |
 
 ### Environment Variables
-- `GEMINI_API_KEY`: Google Gemini API key (if unset, OmniOKF automatically uses offline heuristic mode).
-- `GEMINI_MODEL`: Default Gemini model (defaults to `gemini-2.0-flash`).
-- `OKF_OUTPUT_DIR`: Default output directory (defaults to `.okf`).
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GEMINI_API_KEY` | Google Gemini API key ([get one free](https://aistudio.google.com/)) | *(offline mode if unset)* |
+| `GEMINI_MODEL` | Default Gemini model | `gemini-2.0-flash` |
+| `OKF_OUTPUT_DIR` | Default output directory | `.okf` |
 
 ---
 
@@ -94,50 +136,134 @@ omniokf --input ./raw_documents --offline --no-cache
 
 ```text
 .okf/
-├── index.md             # Master catalog + Mermaid knowledge graph
-├── visualizer.html      # Standalone interactive graph viewer
-├── manifest.json        # Incremental MD5 & build-config cache
+├── index.md              # Master catalog + Mermaid knowledge graph
+├── visualizer.html       # Standalone interactive graph viewer
+├── manifest.json         # Incremental build cache
 ├── guide/
+│   ├── company-knowledge-handbook.md
 │   └── database-setup-guide.md
-└── process/
-    └── incident-response-protocol.md
+├── process/
+│   ├── backup-standards.md
+│   └── incident-response-protocol.md
+└── reference/
+    └── db-schema.md
 ```
 
-Each concept file includes OKF YAML frontmatter:
-```markdown
+Each concept file has OKF YAML frontmatter:
+
+```yaml
 ---
 type: process
 title: Incident Response Protocol
-description: Steps to take when an alert is triggered in production.
+description: Steps to take when a production alert triggers.
 tags:
-- incident
-- pagerduty
-- slack
+  - incident
+  - pagerduty
+  - slack
 timestamp: 2026-07-09T03:20:00Z
 ---
-
-## Incident Response Protocol
-...
 ```
 
 ---
 
-## Incremental Compilation & GitHub Action
+## How AI Agents Use an OKF Bundle
 
-- **Incremental Cache**: OmniOKF hashes each input file and records `split_level`, `mode`, and `model` in `.okf/manifest.json`. Unchanged files with matching build settings are loaded from cache on subsequent runs.
-- **GitHub Action**: See [.github/workflows/okf-generator.yml](.github/workflows/okf-generator.yml) to automatically compile `documents/` or `raw_input.md` into `.okf/` on push.
+```text
+Agent starts
+  │
+  ▼
+Reads index.md ──▶ Gets a map of all concepts, categories, and cross-links
+  │
+  ▼
+Fetches 2-3 concept files ──▶ Only the specific topics needed (saves 75-95% tokens)
+  │
+  ▼
+Follows relative Markdown links ──▶ Traverses to related concepts as needed
+```
+
+Instead of feeding a 100-page PDF into the context window, the agent selectively loads and traverses only the graph nodes it needs.
 
 ---
 
-## Development & Testing
+## Incremental Compilation
 
-Install dev dependencies and run the test suite:
+OmniOKF caches intelligently:
+
+- **MD5 file hashes** detect content changes
+- **Build config** (`split_level`, `mode`, `model`) is tracked per file — changing any setting triggers recompilation
+- **Manifest isolation** — cached content stores pre-link Markdown, so cross-links are always recomputed fresh
+
 ```bash
-pip install -e ".[dev]"
-pytest -v
+# First run: compiles everything
+omniokf -i ./docs --clean
+# Output: 50 concepts compiled | Cached: 0%
+
+# Second run: only changed files recompile
+omniokf -i ./docs --clean
+# Output: 50 concepts compiled | Cached: 96%
 ```
+
+---
+
+## GitHub Action
+
+Automatically compile documents on push. See [`.github/workflows/okf-generator.yml`](.github/workflows/okf-generator.yml):
+
+```yaml
+- name: Run OKF Compiler
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  run: omniokf --input documents --output-dir .okf --clean
+```
+
+---
+
+## Architecture
+
+```text
+main.py                    CLI entrypoint & interactive mode
+src/
+├── pipeline.py            Orchestrates the full compilation pipeline
+├── parser.py              Markdown splitter (code-block aware) + offline classifier
+├── pdf_layout.py          Layout-aware PDF → Markdown via PyMuPDF
+├── metadata.py            Gemini structured metadata extraction (Pydantic schema)
+├── linker.py              TF-IDF cross-linking (preserves code blocks & existing links)
+├── indexer.py             Bundle writer with path-safe output + stale file pruning
+├── visualizer.py          Mermaid graph + standalone HTML visualizer
+└── manifest.py            MD5 hashing + JSON manifest for incremental caching
+```
+
+---
+
+## Development
+
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run the test suite
+pytest -v
+
+# Run the caching verification script
+python verify_caching.py
+
+# Query a compiled bundle (requires GEMINI_API_KEY)
+python verify_reasoning.py --bundle-dir .okf --question "How do backups work?"
+```
+
+---
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Run `pytest -v` to ensure all tests pass
+4. Submit a pull request
 
 ---
 
 ## License
-Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+MIT License © 2026 [Vishal Raaj DND](https://github.com/vishal-raaj-dnd). See [LICENSE](LICENSE) for details.
