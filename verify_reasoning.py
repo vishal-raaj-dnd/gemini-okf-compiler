@@ -1,187 +1,85 @@
+import argparse
 import os
+import re
 import sys
 from dotenv import load_dotenv
 
-def load_concept_file(filepath: str) -> str:
-    """Reads a concept markdown file from the .okf output bundle."""
-    full_path = os.path.join(".okf", filepath.lstrip("./"))
+from src.metadata import DEFAULT_GEMINI_MODEL, create_genai_client
+
+
+def load_bundle_file(bundle_dir: str, rel_path: str) -> str:
+    """Reads a markdown file from the compiled OKF bundle directory."""
+    clean_rel = rel_path.lstrip("./")
+    full_path = os.path.abspath(os.path.join(bundle_dir, clean_rel))
+    if not full_path.startswith(os.path.abspath(bundle_dir) + os.sep):
+        return ""
     if os.path.exists(full_path):
         with open(full_path, "r", encoding="utf-8") as f:
             return f.read()
     return ""
 
-def main():
+
+def main() -> int:
     load_dotenv()
+    parser = argparse.ArgumentParser(description="Query a compiled OKF bundle using index-guided traversal.")
+    parser.add_argument("--bundle-dir", default=".okf", help="Path to compiled OKF bundle (default: .okf).")
+    parser.add_argument(
+        "--question",
+        default="What is the incident response process and how does it relate to database backups?",
+        help="Question to answer from the compiled OKF bundle.",
+    )
+    args = parser.parse_args()
+
+    index_md = load_bundle_file(args.bundle_dir, "index.md")
+    if not index_md:
+        print(f"[-] Error: Could not find '{os.path.join(args.bundle_dir, 'index.md')}'.")
+        print("    Compile a bundle first: python main.py -i example_raw.md --offline")
+        return 1
+
     api_key = os.environ.get("GEMINI_API_KEY")
-    
-    print("=====================================================")
-    print("OmniOKF Accuracy and Token Reasoning Demo Test")
-    print("=====================================================\n")
+    if not api_key or api_key.startswith("your_"):
+        print("[-] GEMINI_API_KEY is required for live LLM traversal.")
+        print("    Available index entries:")
+        for line in index_md.splitlines():
+            if line.startswith("- **["):
+                print(f"    {line}")
+        return 0
 
-    question = "What is the Upstash Redis connection scheme and how is Celery SSL configuration parameter passed?"
-    print(f"[Target Question] \"{question}\"\n")
+    model_name = os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
+    client = create_genai_client(api_key)
 
-    # Define files we need to read
-    ssl_file = "concept/74-celery-ssl-configuration-for-upstash.md"
-    redis_file = "concept/33-upstash-redis-message-broker.md"
-    
-    ssl_chunk = load_concept_file(ssl_file)
-    redis_chunk = load_concept_file(redis_file)
-    
-    if not ssl_chunk or not redis_chunk:
-        print("[-] Error: Could not locate compiled concept files in '.okf/concept/'.")
-        print("    Please run the compiler first: python main.py")
-        sys.exit(1)
+    step1_prompt = (
+        "You are an AI Agent navigating an OKF knowledge base.\n"
+        "From the following index.md, list the relative file paths (e.g. `./guide/database-setup.md`) "
+        "needed to answer the question.\n\n"
+        f"Question: {args.question}\n\n"
+        f"Index:\n{index_md}\n\n"
+        "Output only the relative file paths, one per line:"
+    )
+    step1_resp = client.models.generate_content(model=model_name, contents=step1_prompt)
+    selected_paths = re.findall(r"\./[a-z0-9\-]+/[a-z0-9\-]+\.md", step1_resp.text or "")
 
-    # Check if we should run in live or simulated mode
-    is_live = False
-    client = None
-    model_name = "gemini-2.0-flash"
-    
-    if api_key and not api_key.startswith("your_"):
-        try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            # Test key with a basic generate content call
-            client.models.generate_content(model=model_name, contents="test")
-            is_live = True
-        except Exception:
-            is_live = False
+    if not selected_paths:
+        print("[-] No concept files matched by index traversal.")
+        return 1
 
-    if is_live:
-        print("[Info] Valid GEMINI_API_KEY detected. Running in LIVE mode...\n")
-    else:
-        print("[!] Running in SIMULATED mode (No valid GEMINI_API_KEY detected).\n")
-
-    # -----------------------------------------------------------------
-    # TEST A: Standard Naive Search (Only retrieving one relevant keyword match)
-    # -----------------------------------------------------------------
-    print("Running Test A: Naive Retrieval (Keyword Match for 'Celery SSL')...")
-    
-    prompt_naive = f"""You are a technical assistant. Answer the following question based ONLY on the provided context snippet.
-
-Question: {question}
-
-Context Snippet:
-{ssl_chunk}
-
-Answer:"""
-
-    naive_tokens = len(prompt_naive.split()) * 1.3
-    print(f"   [+] Naive Tokens Used: ~{int(naive_tokens)}")
-    
-    if is_live:
-        try:
-            response_naive = client.models.generate_content(
-                model=model_name,
-                contents=prompt_naive
-            )
-            naive_ans = response_naive.text.strip()
-        except Exception as e:
-            naive_ans = f"Error during live generation: {e}"
-    else:
-        naive_ans = (
-            "Based on the provided context, the Celery SSL configuration parameter is passed "
-            "as an integer constant `ssl.CERT_NONE` (not a string) to `redis-py`.\n\n"
-            "Warning: The connection scheme for Upstash Redis is not mentioned in the provided context."
-        )
-        
-    print(f"   [+] Naive Answer:\n{naive_ans}\n")
-
-    # -----------------------------------------------------------------
-    # TEST B: OKF Graph Traversal (AI Agent navigating the OKF Bundle)
-    # -----------------------------------------------------------------
-    print("Running Test B: OKF Graph Traversal (Multi-Step Agent)...")
-    
-    # Step 1: Agent reads index.md to discover what files exist
-    index_md = load_concept_file("index.md")
-    
-    prompt_step1 = f"""You are an AI Agent indexing a knowledge base.
-Look at the following master index.md and output a list of relative file paths (like `./concept/filename.md`) that contain the information needed to answer the question.
-
-Question: {question}
-
-Index:
-{index_md}
-
-Output only the file paths, one per line:"""
-
-    if is_live:
-        try:
-            response_step1 = client.models.generate_content(
-                model=model_name,
-                contents=prompt_step1
-            )
-            paths_to_load = []
-            for line in response_step1.text.splitlines():
-                line_clean = line.strip()
-                m = re.search(r'(\./concept/[a-zA-Z0-9_\-]+.md)', line_clean)
-                if m:
-                    paths_to_load.append(m.group(1))
-        except Exception:
-            paths_to_load = [f"./{ssl_file}", f"./{redis_file}"]
-    else:
-        paths_to_load = [f"./{ssl_file}", f"./{redis_file}"]
-
-    print(f"   [+] OKF Agent scanned index and dynamically loaded:")
-    for path in paths_to_load:
-        print(f"       -> {path}")
-        
-    # Load the selected concept files
-    retrieved_context = []
-    for path in paths_to_load:
-        clean_path = path.replace("./", "")
-        content = load_concept_file(clean_path)
+    print("[+] Selected OKF nodes:")
+    contexts = []
+    for rel_path in dict.fromkeys(selected_paths):
+        print(f"    -> {rel_path}")
+        content = load_bundle_file(args.bundle_dir, rel_path)
         if content:
-            retrieved_context.append(content)
-            
-    # Answer using only the retrieved OKF chunks
-    context_str = "\n\n---\n\n".join(retrieved_context)
-    prompt_final = f"""You are a technical assistant. Answer the following question based on the provided OKF concept files.
+            contexts.append(content)
 
-Question: {question}
+    final_prompt = (
+        "Answer the question based ONLY on the provided OKF concept files.\n\n"
+        f"Question: {args.question}\n\n"
+        + "\n\n---\n\n".join(contexts)
+    )
+    final_resp = client.models.generate_content(model=model_name, contents=final_prompt)
+    print("\n[+] Answer:\n" + (final_resp.text or "").strip())
+    return 0
 
-OKF Concepts Context:
-{context_str}
-
-Answer:"""
-
-    total_okf_tokens = (len(prompt_step1.split()) + len(prompt_final.split())) * 1.3
-    print(f"\n   [+] OKF Tokens Used: ~{int(total_okf_tokens)}")
-    
-    if is_live:
-        try:
-            response_final = client.models.generate_content(
-                model=model_name,
-                contents=prompt_final
-            )
-            final_ans = response_final.text.strip()
-        except Exception as e:
-            final_ans = f"Error during live generation: {e}"
-    else:
-        final_ans = (
-            "Based on the retrieved OKF concepts:\n"
-            "1. The connection scheme used for Upstash Redis is `rediss://` (TLS-encrypted), "
-            "as Upstash Redis requires SSL.\n"
-            "2. The Celery SSL configuration parameter is passed by setting `ssl.CERT_NONE` "
-            "as an integer constant (not a string) to `redis-py`."
-        )
-        
-    print(f"   [+] OKF Traversal Answer:\n{final_ans}\n")
-
-    # -----------------------------------------------------------------
-    # SUMMARY COMPARISON
-    # -----------------------------------------------------------------
-    print("=====================================================")
-    print("REASONING ACCURACY SUMMARY:")
-    print("=====================================================")
-    print("1. TEST A (Naive Retrieval):")
-    print("   - Accuracy: PARTIAL (50% accuracy)")
-    print("   - Why: It only retrieved the SSL file, so it could NOT explain the Upstash Redis URI connection scheme (missing the Redis concept context).")
-    print("\n2. TEST B (OKF Graph Traversal):")
-    print("   - Accuracy: 100% PERFECT")
-    print("   - Why: The Agent used the OKF Index to dynamically load both the Redis concept and the Celery SSL concept. It answered both parts of the question accurately with minimal tokens.")
 
 if __name__ == "__main__":
-    import re
-    main()
+    raise SystemExit(main())

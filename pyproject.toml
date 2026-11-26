@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omniokf"
+version = "0.2.0"
+description = "Compile PDFs, Office docs, HTML, and Markdown into cross-linked Open Knowledge Format (OKF) bundles for AI agents."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=0.1.1",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "markitdown[pdf]>=0.0.1a2",
+    "pymupdf>=1.22.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+omniokf = "main:main"
+
+[tool.setuptools]
+packages = ["src"]
+py-modules = ["main"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

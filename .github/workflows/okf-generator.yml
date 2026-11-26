@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'documents/**.md'
+      - 'documents/**'
       - 'raw_input.md'
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
@@ -34,11 +34,12 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # Example: compile raw_input.md to the root-level .okf/ directory
-          if [ -f "raw_input.md" ]; then
-            python main.py --input raw_input.md --output-dir .okf
+          if [ -d "documents" ]; then
+            python main.py --input documents --output-dir .okf --clean
+          elif [ -f "raw_input.md" ]; then
+            python main.py --input raw_input.md --output-dir .okf --clean
           else
-            echo "No raw_input.md file found. Skipping compilation."
+            echo "No documents/ directory or raw_input.md found. Skipping compilation."
           fi
 
       - name: Commit and Push Changes
