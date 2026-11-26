@@ -9,6 +9,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" /></a>
   <a href="https://github.com/vishal-raaj-dnd/gemini-okf-compiler/actions"><img src="https://img.shields.io/github/actions/workflow/status/vishal-raaj-dnd/gemini-okf-compiler/ci.yml?branch=main&style=flat-square&label=tests" alt="CI" /></a>
+  <img src="https://komarev.com/ghpvc/?username=vishal-raaj-dnd&repo=gemini-okf-compiler&label=visitors&color=0e75b6&style=flat-square" alt="Visitors" />
 </p>
 
 <p align="center">
